@@ -1,0 +1,111 @@
+#!/bin/bash
+
+# Zen Net - macOS Automated Installer
+echo "🧘 Starting Zen Net Installation..."
+
+# 1. Environment Check
+if ! command -v brew &> /dev/null; then
+    echo "Installing Homebrew..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+
+if ! command -v cargo &> /dev/null; then
+    echo "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source $HOME/.cargo/env
+fi
+
+# 2. Setup Project Directory
+mkdir -p ~/ZenNetProject && cd ~/ZenNetProject
+mkdir -p src-tauri/src
+mkdir -p src
+
+# 3. Create Cargo.toml
+cat <<EOF > src-tauri/Cargo.toml
+[package]
+name = "zen-net"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = "1.5"
+
+[dependencies]
+tauri = { version = "1.5", features = ["shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+flate2 = "1.0"
+EOF
+
+# 4. Create Rust Logic (main.rs)
+cat <<EOF > src-tauri/src/main.rs
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use std::io::Write;
+use std::net::TcpStream;
+
+fn compress_data(data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data).map_err(|e| e.to_string())?;
+    Ok(encoder.finish().map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+async fn zen_execute(code: String, port: String) -> String {
+    let ports = ["8392", "8393", "8394", "8395", "8396", "8397"];
+    let targets: Vec<String> = if port == "ALL" { ports.iter().map(|s| s.to_string()).collect() } else { vec![port] };
+    
+    for p in targets {
+        if let Ok(mut stream) = TcpStream::connect(format!("127.0.0.1:{}", p)) {
+            if code != "NULL" {
+                let compressed = compress_data(code.as_bytes()).unwrap_or_default();
+                let _ = stream.write_all(&compressed);
+            }
+            return format!("Zen Net: Success on port {}", p);
+        }
+    }
+    "Connection Failed".into()
+}
+
+fn main() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![zen_execute])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+EOF
+
+# 5. Create the GUI (index.html)
+cat <<EOF > src/index.html
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { background: #0b0b0d; color: #a370f7; font-family: -apple-system, sans-serif; text-align: center; padding: 20px; }
+        textarea { width: 90%; height: 200px; background: #16161a; border: 1px solid #333; color: #50fa7b; border-radius: 10px; padding: 10px; font-family: monospace; }
+        button { background: #6272a4; color: white; border: none; padding: 10px 20px; border-radius: 5px; margin-top: 10px; cursor: pointer; }
+        button:hover { background: #bd93f9; }
+    </style>
+</head>
+<body>
+    <h1>ZEN NET</h1>
+    <select id="p"><option value="ALL">ALL PORTS</option><option value="8392">8392</option></select><br><br>
+    <textarea id="c" placeholder="OpiumwareScript print('Zen')"></textarea><br>
+    <button onclick="run()">EXECUTE</button>
+    <p id="s" style="font-size: 12px; color: #666;">Ready</p>
+    <script>
+        const { invoke } = window.__TAURI__.tauri;
+        async function run() {
+            const res = await invoke('zen_execute', { code: document.getElementById('c').value, port: document.getElementById('p').value });
+            document.getElementById('s').innerText = res;
+        }
+    </script>
+</body>
+</html>
+EOF
+
+# 6. Build the Application
+echo "🛠 Building Zen Net... (This takes a few minutes on first run)"
+cargo tauri build
+
+echo "✅ Done! Application is in ~/ZenNetProject/src-tauri/target/release/bundle/macos/"
