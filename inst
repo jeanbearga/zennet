@@ -5,32 +5,35 @@ mkdir -p ~/ZenNetProject && cd ~/ZenNetProject
 mkdir -p src-tauri/src
 mkdir -p src
 
-# 2. Simplified Config (No custom-protocol)
+# 1. Config with custom-protocol enabled
 cat <<EOF > src-tauri/tauri.conf.json
 {
   "build": { "devPath": "../src", "distDir": "../src" },
   "package": { "productName": "zen-net", "version": "0.1.0" },
   "tauri": {
+    "allowlist": { "all": true },
     "bundle": { "active": true, "identifier": "com.zen.net", "targets": ["dmg"] },
     "windows": [{ "title": "Zen Net", "width": 800, "height": 600 }]
   }
 }
 EOF
 
-# 3. Cargo.toml
+# 2. Cargo.toml WITH custom-protocol feature
 cat <<EOF > src-tauri/Cargo.toml
 [package]
 name = "zen-net"
 version = "0.1.0"
 edition = "2021"
+
 [build-dependencies]
 tauri-build = "1.5"
+
 [dependencies]
-tauri = { version = "1.5" }
+tauri = { version = "1.5", features = ["shell-open", "custom-protocol"] }
 flate2 = "1.0"
 EOF
 
-# 4. Rust Logic
+# 3. Rust Logic
 cat <<EOF > src-tauri/src/main.rs
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -43,38 +46,40 @@ fn compress_data(d: &[u8]) -> Result<Vec<u8>, String> {
 }
 #[tauri::command]
 async fn zen_execute(code: String, port: String) -> String {
-    let targets = if port == "ALL" { vec!["8392".to_string()] } else { vec![port] };
-    for p in targets {
-        if let Ok(mut s) = TcpStream::connect(format!("127.0.0.1:{}", p)) {
-            if code != "NULL" {
-                let _ = s.write_all(&compress_data(code.as_bytes()).unwrap_or_default());
-            }
-            return format!("Success on {}", p);
+    let p_val = if port == "ALL" { "8392" } else { &port };
+    if let Ok(mut s) = TcpStream::connect(format!("127.0.0.1:{}", p_val)) {
+        if code != "NULL" {
+            let _ = s.write_all(&compress_data(code.as_bytes()).unwrap_or_default());
         }
+        return format!("Sent to {}", p_val);
     }
     "Failed".into()
 }
 fn main() {
-    tauri::Builder::default().invoke_handler(tauri::generate_handler![zen_execute]).run(tauri::generate_context!()).expect("err");
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![zen_execute])
+        .run(tauri::generate_context!())
+        .expect("err");
 }
 EOF
 
-# 5. GUI
+# 4. GUI
 cat <<EOF > src/index.html
 <!DOCTYPE html>
 <html><body style="background:#000;color:#fff;text-align:center;padding:50px;">
     <h1>ZEN NET</h1>
-    <textarea id="c" style="width:80%;height:100px;"></textarea><br>
-    <button onclick="run()">EXECUTE</button>
+    <textarea id="c" style="width:80%;height:100px;background:#222;color:#fff;"></textarea><br>
+    <button id="b" style="padding:10px 20px;margin-top:10px;">EXECUTE</button>
     <p id="s"></p>
     <script>
-        async function run() {
-            const res = await window.__TAURI__.invoke('zen_execute', { code: document.getElementById('c').value, port: '8392' });
+        const { invoke } = window.__TAURI__.tauri;
+        document.getElementById('b').onclick = async () => {
+            const res = await invoke('zen_execute', { code: document.getElementById('c').value, port: '8392' });
             document.getElementById('s').innerText = res;
-        }
+        };
     </script>
 </body></html>
 EOF
 
-echo "🛠 Final Build Attempt..."
+echo "🛠 Re-building with required features..."
 cargo tauri build
