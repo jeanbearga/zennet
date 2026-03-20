@@ -1,73 +1,61 @@
 #!/bin/bash
-echo "🧘 Starting Clean Zen Net Installation..."
+echo "🧘 Starting Zen Net (Fast-Track)..."
 
-# 1. Reset the directory to avoid old cache errors
+# 1. Clean and Setup
 rm -rf ~/ZenNetProject
 mkdir -p ~/ZenNetProject/src-tauri/src
 mkdir -p ~/ZenNetProject/src
 cd ~/ZenNetProject
 
-# 2. Create the Config
+# 2. Simplified Config
 cat <<EOF > src-tauri/tauri.conf.json
 {
   "build": { "devPath": "../src", "distDir": "../src" },
   "package": { "productName": "zen-net", "version": "0.1.0" },
   "tauri": {
     "allowlist": { "all": true },
-    "bundle": { "active": true, "identifier": "com.zen.net", "targets": ["dmg"] },
+    "bundle": { "active": false, "identifier": "com.zen.net" },
     "windows": [{ "title": "Zen Net", "width": 800, "height": 600 }]
   }
 }
 EOF
 
-# 3. Create Cargo.toml (This is the critical fix)
+# 3. Cargo.toml
 cat <<EOF > src-tauri/Cargo.toml
 [package]
 name = "zen-net"
 version = "0.1.0"
 edition = "2021"
-
+[dependencies]
+tauri = { version = "1.5", features = ["shell-open"] }
+flate2 = "1.0"
 [build-dependencies]
 tauri-build = "1.5"
-
-[dependencies]
-tauri = { version = "1.5", features = ["shell-open", "custom-protocol"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-flate2 = "1.0"
 EOF
 
-# 4. Create the Build Script
-cat <<EOF > src-tauri/build.rs
-fn main() { tauri_build::build() }
-EOF
+# 4. Create Build Script
+echo 'fn main() { tauri_build::build() }' > src-tauri/build.rs
 
-# 5. Create Rust Logic
+# 5. Rust Logic
 cat <<EOF > src-tauri/src/main.rs
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::io::Write;
 use std::net::TcpStream;
-
-fn compress_data(d: &[u8]) -> Result<Vec<u8>, String> {
+fn compress(d: &[u8]) -> Vec<u8> {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-    e.write_all(d).map_err(|x| x.to_string())?;
-    Ok(e.finish().map_err(|x| x.to_string())?)
+    e.write_all(d).unwrap();
+    e.finish().unwrap()
 }
-
 #[tauri::command]
 async fn zen_execute(code: String, port: String) -> String {
-    let p_val = if port == "ALL" { "8392" } else { &port };
-    match TcpStream::connect(format!("127.0.0.1:{}", p_val)) {
-        Ok(mut s) => {
-            let compressed = compress_data(code.as_bytes()).unwrap_or_default();
-            let _ = s.write_all(&compressed);
-            format!("Sent to {}", p_val)
-        },
-        Err(_) => "Connection Failed".into()
+    let p = if port == "ALL" { "8392" } else { &port };
+    if let Ok(mut s) = TcpStream::connect(format!("127.0.0.1:{}", p)) {
+        let _ = s.write_all(&compress(code.as_bytes()));
+        return format!("Sent to {}", p);
     }
+    "Failed".into()
 }
-
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![zen_execute])
@@ -76,25 +64,23 @@ fn main() {
 }
 EOF
 
-# 6. Create GUI
+# 6. GUI
 cat <<EOF > src/index.html
 <!DOCTYPE html>
-<html><body style="background:#000;color:#fff;text-align:center;padding:50px;font-family:sans-serif;">
+<html><body style="background:#000;color:#fff;text-align:center;padding:50px;">
     <h1>ZEN NET</h1>
-    <textarea id="c" style="width:80%;height:150px;background:#111;color:#0f0;border:1px solid #333;padding:10px;"></textarea><br>
-    <button id="b" style="padding:15px 30px;margin-top:20px;cursor:pointer;">EXECUTE</button>
-    <p id="s" style="color:#888;margin-top:20px;">Status: Ready</p>
+    <textarea id="c" style="width:80%;height:100px;background:#222;color:#0f0;"></textarea><br>
+    <button onclick="run()">EXECUTE</button>
+    <p id="s"></p>
     <script>
         const { invoke } = window.__TAURI__.tauri;
-        document.getElementById('b').onclick = async () => {
-            const status = document.getElementById('s');
-            status.innerText = "Status: Sending...";
+        async function run() {
             const res = await invoke('zen_execute', { code: document.getElementById('c').value, port: '8392' });
-            status.innerText = "Status: " + res;
-        };
+            document.getElementById('s').innerText = res;
+        }
     </script>
 </body></html>
 EOF
 
-echo "🛠 Starting Full Build (Compiling dependencies)..."
-cargo tauri build
+echo "🚀 Launching Zen Net..."
+cargo tauri dev
