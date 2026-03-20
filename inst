@@ -1,11 +1,13 @@
 #!/bin/bash
-echo "🧘 Starting Zen Net Installation..."
+echo "🧘 Starting Clean Zen Net Installation..."
 
-mkdir -p ~/ZenNetProject && cd ~/ZenNetProject
-mkdir -p src-tauri/src
-mkdir -p src
+# 1. Reset the directory to avoid old cache errors
+rm -rf ~/ZenNetProject
+mkdir -p ~/ZenNetProject/src-tauri/src
+mkdir -p ~/ZenNetProject/src
+cd ~/ZenNetProject
 
-# 1. Config with custom-protocol enabled
+# 2. Create the Config
 cat <<EOF > src-tauri/tauri.conf.json
 {
   "build": { "devPath": "../src", "distDir": "../src" },
@@ -18,7 +20,7 @@ cat <<EOF > src-tauri/tauri.conf.json
 }
 EOF
 
-# 2. Cargo.toml WITH custom-protocol feature
+# 3. Create Cargo.toml (This is the critical fix)
 cat <<EOF > src-tauri/Cargo.toml
 [package]
 name = "zen-net"
@@ -30,31 +32,42 @@ tauri-build = "1.5"
 
 [dependencies]
 tauri = { version = "1.5", features = ["shell-open", "custom-protocol"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 flate2 = "1.0"
 EOF
 
-# 3. Rust Logic
+# 4. Create the Build Script
+cat <<EOF > src-tauri/build.rs
+fn main() { tauri_build::build() }
+EOF
+
+# 5. Create Rust Logic
 cat <<EOF > src-tauri/src/main.rs
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::io::Write;
 use std::net::TcpStream;
+
 fn compress_data(d: &[u8]) -> Result<Vec<u8>, String> {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     e.write_all(d).map_err(|x| x.to_string())?;
     Ok(e.finish().map_err(|x| x.to_string())?)
 }
+
 #[tauri::command]
 async fn zen_execute(code: String, port: String) -> String {
     let p_val = if port == "ALL" { "8392" } else { &port };
-    if let Ok(mut s) = TcpStream::connect(format!("127.0.0.1:{}", p_val)) {
-        if code != "NULL" {
-            let _ = s.write_all(&compress_data(code.as_bytes()).unwrap_or_default());
-        }
-        return format!("Sent to {}", p_val);
+    match TcpStream::connect(format!("127.0.0.1:{}", p_val)) {
+        Ok(mut s) => {
+            let compressed = compress_data(code.as_bytes()).unwrap_or_default();
+            let _ = s.write_all(&compressed);
+            format!("Sent to {}", p_val)
+        },
+        Err(_) => "Connection Failed".into()
     }
-    "Failed".into()
 }
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![zen_execute])
@@ -63,23 +76,25 @@ fn main() {
 }
 EOF
 
-# 4. GUI
+# 6. Create GUI
 cat <<EOF > src/index.html
 <!DOCTYPE html>
-<html><body style="background:#000;color:#fff;text-align:center;padding:50px;">
+<html><body style="background:#000;color:#fff;text-align:center;padding:50px;font-family:sans-serif;">
     <h1>ZEN NET</h1>
-    <textarea id="c" style="width:80%;height:100px;background:#222;color:#fff;"></textarea><br>
-    <button id="b" style="padding:10px 20px;margin-top:10px;">EXECUTE</button>
-    <p id="s"></p>
+    <textarea id="c" style="width:80%;height:150px;background:#111;color:#0f0;border:1px solid #333;padding:10px;"></textarea><br>
+    <button id="b" style="padding:15px 30px;margin-top:20px;cursor:pointer;">EXECUTE</button>
+    <p id="s" style="color:#888;margin-top:20px;">Status: Ready</p>
     <script>
         const { invoke } = window.__TAURI__.tauri;
         document.getElementById('b').onclick = async () => {
+            const status = document.getElementById('s');
+            status.innerText = "Status: Sending...";
             const res = await invoke('zen_execute', { code: document.getElementById('c').value, port: '8392' });
-            document.getElementById('s').innerText = res;
+            status.innerText = "Status: " + res;
         };
     </script>
 </body></html>
 EOF
 
-echo "🛠 Re-building with required features..."
+echo "🛠 Starting Full Build (Compiling dependencies)..."
 cargo tauri build
