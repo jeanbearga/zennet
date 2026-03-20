@@ -1,28 +1,28 @@
 #!/bin/bash
-echo "🧘 Starting Universal Zen Net Installation..."
-
-# 1. Clean Slate
+echo "清理 (Cleaning old files...)"
 rm -rf ~/ZenNetProject
+
+echo "🧘 Starting Fresh Zen Installation..."
 mkdir -p ~/ZenNetProject/src-tauri/src
 mkdir -p ~/ZenNetProject/src
 cd ~/ZenNetProject
 
-# 2. Bare-Bones Config (No features required)
+# 1. Barebones Config - No "custom-protocol" mention at all
 cat <<EOF > src-tauri/tauri.conf.json
 {
   "build": { "devPath": "../src", "distDir": "../src" },
-  "package": { "productName": "zen-net", "version": "0.1.0" },
+  "package": { "productName": "ZenNetApp", "version": "1.0.0" },
   "tauri": {
-    "bundle": { "active": false, "identifier": "com.zen.net" },
+    "bundle": { "active": false, "identifier": "com.clean.zen" },
     "windows": [{ "title": "Zen Net", "width": 800, "height": 600 }]
   }
 }
 EOF
 
-# 3. Simple Cargo.toml (No extra features)
+# 2. Cargo.toml - stripped to the absolute minimum
 cat <<EOF > src-tauri/Cargo.toml
 [package]
-name = "zen-net"
+name = "zen-net-app"
 version = "0.1.0"
 edition = "2021"
 
@@ -34,10 +34,10 @@ flate2 = "1.0"
 tauri-build = "1.5"
 EOF
 
-# 4. Standard Build Script
+# 3. Simple Build Script
 echo 'fn main() { tauri_build::build() }' > src-tauri/build.rs
 
-# 5. Rust Backend
+# 4. Logic
 cat <<EOF > src-tauri/src/main.rs
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -45,45 +45,43 @@ use std::io::Write;
 use std::net::TcpStream;
 
 #[tauri::command]
-fn zen_execute(code: String) -> String {
+fn execute_zen(code: String) -> String {
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-    e.write_all(code.as_bytes()).unwrap();
+    let _ = e.write_all(code.as_bytes());
     let compressed = e.finish().unwrap();
-    
     if let Ok(mut s) = TcpStream::connect("127.0.0.1:8392") {
         let _ = s.write_all(&compressed);
-        return "Success".into();
+        return "Executed".into();
     }
-    "Connection Failed".into()
+    "Target Not Found".into()
 }
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![zen_execute])
+        .invoke_handler(tauri::generate_handler![execute_zen])
         .run(tauri::generate_context!())
-        .expect("err");
+        .expect("error");
 }
 EOF
 
-# 6. Basic HTML GUI
+# 5. GUI
 cat <<EOF > src/index.html
 <!DOCTYPE html>
 <html>
-<body style="background:#111;color:#fff;text-align:center;font-family:sans-serif;padding-top:50px;">
-    <h2 style="letter-spacing:3px;">ZEN NET</h2>
-    <textarea id="c" style="width:80%;height:150px;background:#000;color:#0f0;border:1px solid #444;padding:10px;"></textarea><br>
-    <button id="b" style="margin-top:20px;padding:15px 30px;cursor:pointer;background:#fff;border:none;font-weight:bold;">EXECUTE</button>
-    <p id="s" style="color:#666;margin-top:20px;"></p>
+<body style="background:#000;color:#bc93f9;text-align:center;font-family:sans-serif;padding:50px;">
+    <h1>ZEN NET</h1>
+    <textarea id="c" style="width:80%;height:150px;background:#111;color:#50fa7b;border:1px solid #333;"></textarea><br>
+    <button id="b" style="margin-top:20px;padding:10px 30px;cursor:pointer;">RUN EXECUTION</button>
+    <p id="s" style="margin-top:20px;"></p>
     <script>
         document.getElementById('b').onclick = async () => {
-            document.getElementById('s').innerText = "Sending...";
-            const res = await window.__TAURI__.invoke('zen_execute', { code: document.getElementById('c').value });
-            document.getElementById('s').innerText = "Status: " + res;
+            const res = await window.__TAURI__.invoke('execute_zen', { code: document.getElementById('c').value });
+            document.getElementById('s').innerText = res;
         };
     </script>
 </body>
 </html>
 EOF
 
-echo "🚀 Compiling and Running..."
+echo "🛠 Compiling... (Please wait 2-3 minutes)"
 cargo tauri dev
